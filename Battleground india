@@ -1,0 +1,174 @@
+Assets/
+ ├─ Art/
+ │   └── splash.png (placeholder logo)
+ ├─ Scenes/
+ │   ├─ SplashScene.unity
+ │   ├─ MainMenu.unity
+ │   └─ DemoMap.unity
+ ├─ Prefabs/
+ │   ├─ Player.prefab
+ │   ├─ Gun.prefab
+ │   └─ ShopUI.prefab
+ └─ Scripts/
+     ├─ SplashManager.cs
+     ├─ MenuManager.cs
+     ├─ PlayerController.cs
+     ├─ FusionNetworkRunner.cs
+     ├─ PlayerNetwork.cs
+     ├─ SkinData.cs
+     ├─ SkinManager.cs
+     ├─ GlooWallManager.cs
+     ├─ EmoteManager.cs
+     └using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class SplashManager : MonoBehaviour {
+    public float delay = 3f;
+    void Start() => Invoke(nameof(GoToMenu), delay);
+    void GoToMenu() => SceneManager.LoadScene("MainMenu");
+}─ ShopManager.csusing UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class MenuManager : MonoBehaviour {
+    public GameObject shopPanel;
+    public void StartMode(string mode) => SceneManager.LoadScene("DemoMap");
+    public void OpenShop() => shopPanel.SetActive(true);
+}using UnityEngine;
+
+public class PlayerController : MonoBehaviour {
+    public float speed = 5f, lookSpeed = 2f;
+    private CharacterController cc;
+    float yaw, pitch;
+    public GameObject bulletPrefab;
+    public Transform firePoint;
+
+    void Start() => cc = GetComponent<CharacterController>();
+
+    void Update() {
+        Vector3 input = new Vector3(Input.GetAxis("Horizontal"), 0, Input.GetAxis("Vertical"));
+        cc.Move(transform.TransformDirection(input) * speed * Time.deltaTime);
+        yaw += lookSpeed * Input.GetAxis("Mouse X");
+        pitch = Mathf.Clamp(pitch - lookSpeed * Input.GetAxis("Mouse Y"), -45, 60);
+        transform.localRotation = Quaternion.Euler(0, yaw, 0);
+        Camera.main.transform.localEulerAngles = new Vector3(pitch, 0, 0);
+
+        if (Input.GetButtonDown("Fire1"))
+            Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
+    }
+}using UnityEngine;
+using Fusion;
+using UnityEngine.SceneManagement;
+
+public class FusionNetworkRunner : MonoBehaviour {
+    public NetworkRunner runnerPrefab;
+    void Start() {
+        var runner = Instantiate(runnerPrefab);
+        runner.ProvideInput = true;
+        runner.StartGame(new StartGameArgs {
+            GameMode = GameMode.AutoHostOrClient,
+            SessionName = "BattleRoom",
+            Scene = SceneManager.GetActiveScene().buildIndex,
+            PlayerCount = 50
+        });
+    }
+}using UnityEngine;
+using Fusion;
+
+public class PlayerNetwork : NetworkBehaviour {
+    public float moveSpeed = 5f;
+    public GameObject bulletPrefab;
+    public Transform firePoint;
+    private GameObject equippedGun;
+
+    public override void FixedUpdateNetwork() {
+        if (Object.HasInputAuthority) {
+            Vector3 dir = new Vector3(Input.GetAxis("Horizontal"), 0, Input.GetAxis("Vertical"));
+            transform.Translate(dir * moveSpeed * Runner.DeltaTime);
+        }
+    }
+
+    public override void Render() {
+        if (Object.HasInputAuthority && Input.GetButtonDown("Fire1")) RPC_Shoot();
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.All)]
+    void RPC_Shoot() => Instantiate(bulletPrefab, firePoint.position, firePoint.rotation);
+
+    public void EquipGun(GameObject gunPrefab) {
+        if (equippedGun) Destroy(equippedGun);
+        equippedGun = Instantiate(gunPrefab, firePoint);
+    }
+}using UnityEngine;
+using UnityEngine.UI;
+
+public class ShopManager : MonoBehaviour {
+    public Text diamondText;
+    private int diamonds = 0;
+    public string upiId = "9815389356@pthdfc";
+
+    public void BuyDiamonds(int amount) {
+        Debug.Log($"Please pay via UPI {upiId} to get {amount} diamonds");
+        diamonds += amount;
+        diamondText.text = $"Diamonds: {diamonds}";
+    }
+}using UnityEngine;
+using Fusion;
+
+public class EmoteManager : NetworkBehaviour {
+    public Animator anim;
+
+    public void TriggerEmote(string emoteName) {
+        if (Object.HasInputAuthority)
+            RPC_Emote(emoteName);
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.All)]
+    void RPC_Emote(string name) {
+        anim.SetTrigger(name);
+    }
+}using UnityEngine;
+using Fusion;
+
+public class GlooWallManager : NetworkBehaviour {
+    public GameObject glooWallPrefab;
+    public Transform deployPoint;
+
+    public override void Render() {
+        if (Object.HasInputAuthority && Input.GetKeyDown(KeyCode.G)) {
+            RPC_DeployWall(deployPoint.position, deployPoint.rotation);
+        }
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.All)]
+    void RPC_DeployWall(Vector3 pos, Quaternion rot) {
+        Instantiate(glooWallPrefab, pos, rot);
+    }
+}using UnityEngine;
+using UnityEngine.UI;
+using System.Collections.Generic;
+
+public class SkinManager : MonoBehaviour {
+    public List<SkinData> skins;
+    public Transform skinPanel;
+    public GameObject skinButtonPrefab;
+    public PlayerNetwork localPlayer;
+
+    void Start() {
+        foreach (var skin in skins) {
+            GameObject btn = Instantiate(skinButtonPrefab, skinPanel);
+            btn.GetComponentInChildren<Text>().text = $"{skin.skinName} ({skin.cost}D)";
+            btn.GetComponent<Button>().onClick.AddListener(() => EquipSkin(skin));
+        }
+    }
+
+    void EquipSkin(SkinData skin) {
+        localPlayer.EquipGun(skin.gunPrefab);
+    }
+}using UnityEngine;
+
+[System.Serializable]
+public class SkinData {
+    public string skinName;
+    public int cost;
+    public GameObject gunPrefab;
+}
